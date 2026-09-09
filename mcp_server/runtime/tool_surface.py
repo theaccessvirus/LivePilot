@@ -167,6 +167,18 @@ _QUERY_HINTS: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
 )
 
 
+def register_profile(name: str, tools: Sequence[str]) -> None:
+    """Register (or replace) a public profile contributed by an overlay.
+
+    The overlay package calls this at import time so ``LIVEPILOT_TOOL_PROFILE``
+    can name a profile that LivePilot itself does not define.
+    """
+    normalized = name.strip().lower()
+    if not normalized or normalized == "full":
+        raise ValueError(f"Invalid profile name '{name}'")
+    TOOL_PROFILES[normalized] = tuple(dict.fromkeys(tools))
+
+
 def profile_tool_names(profile: str) -> tuple[str, ...]:
     """Return pinned tool names for a supported public profile."""
     normalized = profile.strip().lower()

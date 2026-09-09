@@ -15,6 +15,12 @@
 # Usage:
 #   scripts/build_mcpb.sh                 # builds dist/livepilot-${VERSION}.mcpb
 #   scripts/build_mcpb.sh --output <path> # custom output path
+#   scripts/build_mcpb.sh --studiopilot <dir>
+#       Also stage the StudioPilot overlay package found at <dir> (the
+#       directory that contains studiopilot/), add bin/studiopilot_proxy.py,
+#       and point the manifest's mcp_config at that proxy with the
+#       StudioPilot env defaults. The proxy forwards stdio to the shared
+#       LivePilot HTTP server on 127.0.0.1:9890/mcp.
 #
 # The bundle is deliberately lean:
 #   - bin/livepilot.js is pure Node stdlib (zero npm deps) so no
@@ -34,11 +40,16 @@ cd "$ROOT"
 VERSION="$(python3 -c "import json; print(json.load(open('manifest.json'))['version'])")"
 OUTPUT_DEFAULT="$ROOT/dist/livepilot-${VERSION}.mcpb"
 OUTPUT="$OUTPUT_DEFAULT"
+STUDIOPILOT_SRC=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --output)
             OUTPUT="$2"
+            shift 2
+            ;;
+        --studiopilot)
+            STUDIOPILOT_SRC="$2"
             shift 2
             ;;
         -h|--help)
@@ -68,6 +79,50 @@ cp -R remote_script "$STAGE/"
 cp -R m4l_device "$STAGE/"
 cp -R installer "$STAGE/"
 
+# StudioPilot overlay: package + stdio proxy entry point + env defaults.
+if [[ -n "$STUDIOPILOT_SRC" ]]; then
+    if [[ ! -d "$STUDIOPILOT_SRC/studiopilot" ]]; then
+        echo "error: $STUDIOPILOT_SRC/studiopilot not found" >&2
+        exit 2
+    fi
+    echo "→ Staging StudioPilot overlay from $STUDIOPILOT_SRC"
+    cp -R "$STUDIOPILOT_SRC/studiopilot" "$STAGE/studiopilot"
+    cat > "$STAGE/bin/studiopilot_proxy.py" <<'PYEOF_PROXY'
+#!/usr/bin/env python3
+"""Claude Desktop entry point: stdio MCP proxy to the shared StudioPilot server."""
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+from studiopilot.proxy import main  # noqa: E402
+
+if __name__ == "__main__":
+    main()
+PYEOF_PROXY
+    chmod +x "$STAGE/bin/studiopilot_proxy.py"
+    python3 - "$STAGE/manifest.json" <<'PYEOF_MANIFEST'
+import json, sys
+path = sys.argv[1]
+m = json.load(open(path))
+m["server"]["mcp_config"] = {
+    "command": "python3",
+    "args": ["${__dirname}/bin/studiopilot_proxy.py"],
+    "env": {
+        "STUDIOPILOT_SERVER_URL": "http://127.0.0.1:9890/mcp",
+        "STUDIOPILOT_OVERLAY": "1",
+        "LIVEPILOT_TOOL_PROFILE": "studiopilot",
+        "LIVEPILOT_SPLICE_DISABLE": "1",
+    },
+}
+m["server"]["entry_point"] = "bin/studiopilot_proxy.py"
+m["name"] = "studiopilot"
+m["display_name"] = "StudioPilot (LivePilot fork, shared local server)"
+json.dump(m, open(path, "w"), indent=2)
+PYEOF_MANIFEST
+fi
+
 # Exclude caches and editor cruft
 find "$STAGE" -name "__pycache__" -type d -prune -exec rm -rf {} + 2>/dev/null || true
 find "$STAGE" -name "*.pyc" -delete 2>/dev/null || true
@@ -88,9 +143,9 @@ echo "→ Building $OUTPUT"
 unzip -p "$OUTPUT" manifest.json | python3 -c "
 import json, sys
 m = json.load(sys.stdin)
-assert m['name'] == 'livepilot', f'bad name: {m[\"name\"]}'
+assert m['name'] in ('livepilot', 'studiopilot'), f'bad name: {m[\"name\"]}'
 assert m['version'] == '${VERSION}', f'bad version: {m[\"version\"]} != ${VERSION}'
-assert m['server']['entry_point'] == 'bin/livepilot.js', f'bad entry'
+assert m['server']['entry_point'] in ('bin/livepilot.js', 'bin/studiopilot_proxy.py'), f'bad entry'
 print(f'✓ manifest: {m[\"name\"]} v{m[\"version\"]} (entry={m[\"server\"][\"entry_point\"]})')
 "
 

@@ -21,6 +21,26 @@ logger = logging.getLogger(__name__)
 _public_tool_surface_configured = False
 
 
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _splice_disabled() -> bool:
+    return _env_flag("LIVEPILOT_SPLICE_DISABLE")
+
+
+def _overlay_requested() -> bool:
+    """True when the StudioPilot overlay must load (flag or profile)."""
+    if _env_flag("STUDIOPILOT_OVERLAY"):
+        return True
+    return os.environ.get("LIVEPILOT_TOOL_PROFILE", "").strip().lower() == "studiopilot"
+
+
+def _overlay_active() -> bool:
+    import sys
+    return "studiopilot.overlay" in sys.modules
+
+
 def _identify_port_holder(port: int) -> str | None:
     """Identify which process holds the given UDP port (for logging only).
 
@@ -180,6 +200,8 @@ async def _run_optional_startup(
     """Prime optional integrations without delaying MCP availability."""
 
     async def _prime_splice() -> None:
+        if splice_client is None:
+            return
         try:
             await splice_client.connect()
         except Exception as exc:
@@ -217,8 +239,10 @@ async def lifespan(server):
 
     # Splice gRPC client — connected in the optional background primer below.
     # Sample tools also reconnect lazily, so MCP startup never waits on the
-    # desktop app being unavailable.
-    splice_client = SpliceGRPCClient()
+    # desktop app being unavailable. LIVEPILOT_SPLICE_DISABLE=1 skips the
+    # client entirely (fully local deployments); consumers already treat a
+    # missing "splice_client" context entry as "unavailable".
+    splice_client = None if _splice_disabled() else SpliceGRPCClient()
 
     # Start UDP listener for incoming M4L spectral data (port 9880)
     loop = asyncio.get_running_loop()
@@ -290,7 +314,8 @@ async def lifespan(server):
         m4l.close()
         ableton.disconnect()
         try:
-            await splice_client.disconnect()
+            if splice_client is not None:
+                await splice_client.disconnect()
         except Exception as exc:
             logger.debug("lifespan failed: %s", exc)
 # Report LivePilot's own version in the MCP initialize handshake. Without
@@ -363,6 +388,18 @@ from .listening import tools as listening_tools                # noqa: F401, E40
 from .listening import taste_tools as listening_taste_tools   # noqa: F401, E402
 from .tools import diagnostics   # noqa: F401, E402
 from .tools import miditool       # noqa: F401, E402
+
+# StudioPilot overlay: registers its tools and the "studiopilot" profile on
+# this same `mcp` instance. Loaded only on request; a request that cannot be
+# honoured is a startup failure, never a silent fallback to stock LivePilot.
+if _overlay_requested():
+    try:
+        import studiopilot.overlay  # noqa: F401, E402
+    except ImportError as _overlay_exc:
+        raise SystemExit(
+            "LivePilot: STUDIOPILOT_OVERLAY=1 or LIVEPILOT_TOOL_PROFILE=studiopilot "
+            f"was requested but the studiopilot package is not importable: {_overlay_exc}"
+        ) from _overlay_exc
 
 # ---------------------------------------------------------------------------
 # Schema coercion patch — accept strings for numeric parameters
@@ -543,6 +580,9 @@ def _assert_expected_tool_count() -> None:
     own decorators have run).
     """
     import sys
+    if _overlay_active():
+        # The overlay adds tools; its own registry test covers the count.
+        return
     expected = _read_expected_tool_count()
     actual = len(_get_all_tools())
     if expected is not None and actual != expected:
@@ -621,13 +661,27 @@ _patch_tool_schemas()
 
 
 def main():
-    """Run the MCP server over stdio."""
+    """Run the MCP server over stdio (default) or streamable HTTP.
+
+    ``LIVEPILOT_TRANSPORT=http`` serves ``/mcp`` on ``LIVEPILOT_HTTP_HOST``
+    (default 127.0.0.1) and ``LIVEPILOT_HTTP_PORT`` (default 9890) so several
+    MCP clients can share one server process and one Remote Script socket.
+    """
     # Verify tool count matches the contract — runs here (not at module load)
     # so all tool-module imports have completed regardless of the import path
     # that brought server.py in. See _assert_tool_registry_accessible() docstring.
     _assert_expected_tool_count()
     profile = _configure_public_tool_surface()
     logger.info("LivePilot public tool profile: %s", profile)
+    transport = os.environ.get("LIVEPILOT_TRANSPORT", "stdio").strip().lower()
+    if transport == "http":
+        host = os.environ.get("LIVEPILOT_HTTP_HOST", "127.0.0.1").strip() or "127.0.0.1"
+        port = int(os.environ.get("LIVEPILOT_HTTP_PORT", "9890"))
+        logger.info("LivePilot transport: http on %s:%d/mcp", host, port)
+        mcp.run(transport="http", host=host, port=port)
+        return
+    if transport != "stdio":
+        raise SystemExit(f"LivePilot: unknown LIVEPILOT_TRANSPORT '{transport}' (expected stdio or http)")
     mcp.run(transport="stdio")
 
 if __name__ == "__main__":
