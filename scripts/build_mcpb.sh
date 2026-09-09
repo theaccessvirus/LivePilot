@@ -21,6 +21,9 @@
 #       and point the manifest's mcp_config at that proxy with the
 #       StudioPilot env defaults. The proxy forwards stdio to the shared
 #       LivePilot HTTP server on 127.0.0.1:9890/mcp.
+#   scripts/build_mcpb.sh --studiopilot <dir> --python <interpreter>
+#       Interpreter Claude Desktop runs the proxy with (needs fastmcp);
+#       defaults to <dir>/.venv/bin/python when it exists, else python3.
 #
 # The bundle is deliberately lean:
 #   - bin/livepilot.js is pure Node stdlib (zero npm deps) so no
@@ -41,6 +44,7 @@ VERSION="$(python3 -c "import json; print(json.load(open('manifest.json'))['vers
 OUTPUT_DEFAULT="$ROOT/dist/livepilot-${VERSION}.mcpb"
 OUTPUT="$OUTPUT_DEFAULT"
 STUDIOPILOT_SRC=""
+STUDIOPILOT_PYTHON=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -50,6 +54,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --studiopilot)
             STUDIOPILOT_SRC="$2"
+            shift 2
+            ;;
+        --python)
+            STUDIOPILOT_PYTHON="$2"
             shift 2
             ;;
         -h|--help)
@@ -102,12 +110,21 @@ if __name__ == "__main__":
     main()
 PYEOF_PROXY
     chmod +x "$STAGE/bin/studiopilot_proxy.py"
-    python3 - "$STAGE/manifest.json" <<'PYEOF_MANIFEST'
+    if [[ -z "$STUDIOPILOT_PYTHON" ]]; then
+        if [[ -x "$STUDIOPILOT_SRC/.venv/bin/python" ]]; then
+            STUDIOPILOT_PYTHON="$STUDIOPILOT_SRC/.venv/bin/python"
+        else
+            STUDIOPILOT_PYTHON="python3"
+        fi
+    fi
+    echo "→ Proxy interpreter: $STUDIOPILOT_PYTHON"
+    python3 - "$STAGE/manifest.json" "$STUDIOPILOT_PYTHON" <<'PYEOF_MANIFEST'
 import json, sys
-path = sys.argv[1]
+path, interpreter = sys.argv[1], sys.argv[2]
 m = json.load(open(path))
+m["server"]["type"] = "python"
 m["server"]["mcp_config"] = {
-    "command": "python3",
+    "command": interpreter,
     "args": ["${__dirname}/bin/studiopilot_proxy.py"],
     "env": {
         "STUDIOPILOT_SERVER_URL": "http://127.0.0.1:9890/mcp",
@@ -119,6 +136,9 @@ m["server"]["mcp_config"] = {
 m["server"]["entry_point"] = "bin/studiopilot_proxy.py"
 m["name"] = "studiopilot"
 m["display_name"] = "StudioPilot (LivePilot fork, shared local server)"
+m["description"] = "Ableton Live 12 control through the shared local StudioPilot server on 127.0.0.1:9890"
+m.pop("user_config", None)  # the proxy takes no settings; the server owns the Live link
+m["compatibility"] = {"platforms": ["darwin"], "runtimes": {"python": ">=3.12"}}
 json.dump(m, open(path, "w"), indent=2)
 PYEOF_MANIFEST
 fi
