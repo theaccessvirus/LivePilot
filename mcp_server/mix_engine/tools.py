@@ -17,8 +17,26 @@ from .state_builder import build_mix_state
 from .critics import run_all_mix_critics
 from .planner import plan_mix_moves
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
+
+
+def _overlay_per_track_bands(ctx: Context) -> dict | None:
+    """StudioPilot overlay: fresh measured per-track band energies, or None.
+
+    Only consulted when ``studiopilot.overlay`` is loaded (STUDIOPILOT_OVERLAY=1);
+    without it the payload is exactly upstream's.
+    """
+    overlay = sys.modules.get("studiopilot.overlay")
+    if overlay is None:
+        return None
+    try:
+        tracks = overlay.per_track_bands(ctx)
+    except Exception as exc:
+        logger.debug("_fetch_mix_data overlay feed failed: %s", exc)
+        return None
+    return tracks or None
 
 
 
@@ -71,6 +89,10 @@ def _fetch_mix_data(ctx: Context) -> dict:
                     spectrum[key] = snap["value"]
     except Exception as exc:
         logger.debug("_fetch_mix_data failed: %s", exc)
+
+    per_track = _overlay_per_track_bands(ctx)
+    if per_track:
+        spectrum = {**(spectrum or {}), "tracks": per_track}
 
     return {
         "session_info": session_info,
