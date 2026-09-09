@@ -24,6 +24,7 @@ from . import arrangement  # noqa: F401  — registers arrangement handlers
 from . import diagnostics       # noqa: F401  — registers diagnostics handler
 from . import follow_actions    # noqa: F401  — registers follow action handlers (12.0+, 12.2+)
 from . import grooves           # noqa: F401  — registers groove pool handlers (11+)
+from . import batch             # noqa: F401  — registers the batch command
 from . import take_lanes        # noqa: F401  — registers take lane handlers (12.0+ read, 12.2+ write)
 from . import clip_automation   # noqa: F401  — registers clip automation handlers
 from . import simpler_sample    # noqa: F401  — registers replace_sample_native (12.4+)

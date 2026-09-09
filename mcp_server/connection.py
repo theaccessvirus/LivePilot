@@ -27,6 +27,8 @@ UI_TRANSITION_RETRY_DELAY = 0.4
 COMMAND_RECV_TIMEOUTS = {
     # Server-side slow write window is 35s; give the client a small buffer.
     "freeze_track": 40,
+    # Server-side batch window is 60s (up to 50 sub-commands); small buffer.
+    "batch": 65,
 }
 
 

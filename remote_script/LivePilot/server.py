@@ -68,6 +68,7 @@ WRITE_COMMANDS = frozenset([
 # read-after-write race the settle delay exists to prevent. This frozenset is
 # checked independently of WRITE_COMMANDS so that can't happen silently.
 WRITE_BARE_VERBS = frozenset([
+    "batch",
     "undo",
     "redo",
 ])
@@ -393,7 +394,10 @@ class LivePilotServer(object):
 
         # Determine timeout based on read vs write vs slow write
         is_write = is_write_command(cmd_type)
-        if cmd_type in SLOW_WRITE_COMMANDS:
+        if cmd_type == "batch":
+            # Up to BATCH_MAX writes plus one settle delay
+            timeout = 60
+        elif cmd_type in SLOW_WRITE_COMMANDS:
             timeout = 35
         elif is_write:
             timeout = 15

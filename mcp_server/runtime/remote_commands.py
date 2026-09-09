@@ -10,6 +10,8 @@ cannot be imported in CI. Update this when adding new handlers.
 """
 
 REMOTE_COMMANDS: frozenset[str] = frozenset({
+    # StudioPilot fork: one-hop composite execution (remote_script/LivePilot/batch.py)
+    "batch", "get_batchable_commands",
     # transport (10)
     "get_session_info", "set_tempo", "set_time_signature",
     "start_playback", "stop_playback", "continue_playback",
