@@ -15,7 +15,7 @@ REMOTE_COMMANDS: frozenset[str] = frozenset({
     # transport (10)
     "get_session_info", "set_tempo", "set_time_signature",
     "start_playback", "stop_playback", "continue_playback",
-    "toggle_metronome", "set_session_loop", "undo", "redo",
+    "toggle_metronome", "set_session_loop", "undo", "redo", "get_undo_state",
     # tracks (17)
     "get_track_info", "create_midi_track", "create_audio_track",
     "create_return_track", "delete_track", "duplicate_track",
