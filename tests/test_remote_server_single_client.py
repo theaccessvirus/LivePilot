@@ -162,6 +162,7 @@ def test_write_command_classifier_catches_newer_mutating_handlers():
     for command in (
         "insert_device",
         "insert_rack_chain",
+        "restore_track_sidechains",
         "set_song_scale",
         "set_clip_pitch",
         "set_groove_params",

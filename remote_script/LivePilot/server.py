@@ -44,7 +44,7 @@ WRITE_COMMANDS = frozenset([
     "freeze_track", "flatten_track",
     # mixing
     "set_track_volume", "set_track_pan", "set_track_send",
-    "set_master_volume", "set_track_routing",
+    "set_master_volume", "set_track_routing", "restore_track_sidechains",
     # browser
     "load_browser_item",
     # arrangement

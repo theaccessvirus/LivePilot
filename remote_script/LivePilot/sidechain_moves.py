@@ -37,7 +37,7 @@ def _source(song, name):
             other_labels.update((owner.name, "%d-%s" % (i + 1, owner.name)))
     if labels & other_labels:
         raise ValueError("Ambiguous sidechain routing label for %r" % name)
-    return owners, labels
+    return owners, labels, other_labels
 
 
 def _name(routing):
@@ -63,7 +63,7 @@ def _one(options, names):
 @register("get_track_sidechain_snapshot")
 def get_track_sidechain_snapshot(song, params):
     source = params["source"]
-    owners, labels = _source(song, source)
+    owners, labels, _ = _source(song, source)
     entries = []
     uninspected = []
     for owner in owners:
@@ -87,13 +87,14 @@ def get_track_sidechain_snapshot(song, params):
                 without_routing_surface=uninspected)
 
 
-def _restore(device, entry, labels):
+def _restore(device, entry, labels, other_labels):
     surface = _find_sidechain_surface(device)
     target = _one(surface["types"], labels)
     selected = _name(surface["read_type"]())
     changed = False
     if selected != _name(target):
-        if selected not in ("", "No Input", "None", entry["source"]):
+        stale_source = selected == entry["source"] and selected not in other_labels
+        if selected not in ("", "No Input", "None") and not stale_source:
             raise ValueError("Source was edited to %r" % selected)
         surface["set_type"](target)
         changed = True
@@ -119,14 +120,14 @@ def restore_track_sidechains(song, params):
     if saved is None or saved[0] != _get_session_instance_id(song):
         raise ValueError("Unknown snapshot or different open Live Set")
     _, source, entries = saved
-    owners, labels = _source(song, source)
+    owners, labels, other_labels = _source(song, source)
     devices = [device for owner in owners for device, _ in _walk(owner, owner.name)]
     results = []
     for device, entry in entries:
         try:
             if device not in devices:
                 raise ValueError("Original receiver is no longer in this set")
-            status = _restore(device, entry, labels)
+            status = _restore(device, entry, labels, other_labels)
             results.append(dict(entry, status=status))
         except Exception as error:
             results.append(dict(entry, status="failed", error=str(error)))
