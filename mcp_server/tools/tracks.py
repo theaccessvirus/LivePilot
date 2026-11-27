@@ -397,7 +397,7 @@ def freeze_track(ctx: Context, track_index: int) -> dict:
 
     Note: freeze() is not available via ControlSurface API in all Live
     versions. If this fails, use Ableton's Freeze Track menu command
-    (Cmd+F on Mac) manually instead.
+    (Cmd+Option+Shift+F on Mac) manually instead.
     """
     _validate_track_index(track_index)
     return _get_ableton(ctx).send_command("freeze_track", {
