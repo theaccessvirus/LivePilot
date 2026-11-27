@@ -18,6 +18,7 @@ from . import notes        # noqa: F401  — registers note handlers
 from . import devices      # noqa: F401  — registers device handlers
 from . import scenes       # noqa: F401  — registers scene handlers
 from . import scales       # noqa: F401  — registers song scale handlers (12.0+)
+from . import sidechain_moves  # registers track-move sidechain handlers
 from . import mixing       # noqa: F401  — registers mixing handlers
 from . import browser      # noqa: F401  — registers browser handlers
 from . import arrangement  # noqa: F401  — registers arrangement handlers
