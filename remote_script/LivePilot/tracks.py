@@ -97,7 +97,7 @@ def get_track_info(song, params):
     # index used to crash get_track_info. Guard each access — mirrors the
     # transport.py get_session_info fix (commit 4aec8e6, closing PR #35).
     if track_index >= 0:
-        for _prop in ("arm", "has_midi_input", "has_audio_input",
+        for _prop in ("muted_via_solo", "arm", "has_midi_input", "has_audio_input",
                       "current_monitoring_state"):
             try:
                 result[_prop] = getattr(track, _prop)
@@ -320,6 +320,8 @@ def get_freeze_status(song, params):
     """Return freeze state for a track."""
     track_index = int(params["track_index"])
     track = get_track(song, track_index)
+    if "expected_track_id" in params and track._live_ptr != params["expected_track_id"]:
+        raise RuntimeError("The freeze target moved or was replaced")
     return {
         "track_index": track_index,
         "is_frozen": track.is_frozen,
@@ -361,8 +363,7 @@ def freeze_track(song, params):
     if not frozen:
         raise ValueError(
             "freeze() not available via ControlSurface API. "
-            "Use Ableton's Freeze Track command (Cmd+F) manually, "
-            "or use the M4L bridge for programmatic freeze."
+            "Use Ableton's Freeze Track command (Cmd+Option+Shift+F on macOS)."
         )
     return {
         "track_index": track_index,
@@ -468,3 +469,50 @@ def get_appointed_device(song, params):
                     "device_name": str(d.name)}
     return {"track_index": -1, "device_index": -1,
             "track_name": "", "device_name": str(getattr(dev, "name", ""))}
+
+
+@register("create_freeze_receiver_clip")
+def create_freeze_receiver_clip(song, params):
+    """Place one silent arrangement clip on the freshly created receiver."""
+    track = get_track(song, int(params["track_index"]))
+    start = float(params["start_beat"])
+    length = float(params["length_beats"])
+    if (track.name != params["receiver_name"] or track.arrangement_clips
+            or not any(d.name == "FreezeReceiver" for d in track.devices)):
+        raise ValueError("Expected a new, empty FreezeReceiver track")
+    if not (0 <= start and 0 < length):
+        raise ValueError("Invalid receiver range")
+    track.mute = True
+    track.create_audio_clip(params["silence_path"], start)
+    clip = track.arrangement_clips[0]
+    clip.warping = True
+    clip.looping = False
+    clip.loop_end = length
+    if abs(clip.length - length) > 0.001 or abs(clip.start_time - start) > 0.001:
+        raise RuntimeError("Live did not size the silent clip to the requested range")
+    return {"start_beat": clip.start_time, "length_beats": clip.length}
+
+
+@register("set_freeze_target")
+def set_freeze_target(song, params):
+    """Select the regular track for the subsequent Live freeze shortcut."""
+    index = int(params["track_index"])
+    if index < 0:
+        raise ValueError("Choose a regular track")
+    track = get_track(song, index)
+    if track.is_frozen:
+        return {"is_frozen": True}
+    if track.is_foldable or not track.can_be_frozen:
+        raise ValueError("Live cannot freeze this track")
+    member = track
+    while member.is_grouped:
+        member = member.group_track
+        member.fold_state = False
+    import Live
+    view = Live.Application.get_application().view
+    view.show_view("Arranger")
+    view.focus_view("Arranger")
+    song.view.selected_track = track
+    if song.view.selected_track != track:
+        raise RuntimeError("Live did not select the requested track")
+    return {"track_id": track._live_ptr, "name": track.name, "is_frozen": bool(track.is_frozen)}
